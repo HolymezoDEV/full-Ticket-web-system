@@ -1,74 +1,118 @@
 <script setup lang="ts">
-const route = useRoute()
+import type { CommandPaletteItem, NavigationMenuItem } from '@nuxt/ui'
+
 const config = useRuntimeConfig()
-const menuOpen = shallowRef(false)
-const { user, logout } = useAuth()
-const profileOpen = shallowRef(false)
-const initials = computed(() => (user.value?.name ?? '?').split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join(''))
-const pageTitle = computed(() => route.path === '/settings' ? 'Einstellungen' : route.path === '/tickets/new' ? 'Neues Ticket' : route.path.startsWith('/tickets/') ? 'Ticket' : 'Posteingang')
-watch(() => route.fullPath, () => { profileOpen.value = false })
+const router = useRouter()
+const { can } = useAuth()
+const { tickets } = await useTickets()
+const settingsLinks = useSettingsLinks()
+
+const open = ref(false)
+const close = () => {
+  open.value = false
+}
+
+const openCount = computed(() => tickets.value.filter(ticket => ticket.status === 'Offen').length)
+
+const links = computed<NavigationMenuItem[][]>(() => [[
+  { label: 'Übersicht', icon: 'i-lucide-house', to: '/', onSelect: close },
+  ...(can('tickets.view') ? [{ label: 'Tickets', icon: 'i-lucide-inbox', to: '/tickets', badge: openCount.value ? String(openCount.value) : undefined, onSelect: close }] : []),
+  ...(can('customers.view') ? [{ label: 'Kunden', icon: 'i-lucide-users', to: '/customers', onSelect: close }] : []),
+  {
+    label: 'Einstellungen',
+    to: '/settings',
+    icon: 'i-lucide-settings',
+    defaultOpen: true,
+    type: 'trigger',
+    children: settingsLinks.value.map(({ label, to, exact }) => ({ label, to, exact, onSelect: close }))
+  }
+], [{
+  label: 'Öffentliches Formular',
+  icon: 'i-lucide-external-link',
+  to: String(config.public.intakeUrl),
+  target: '_blank'
+}]])
+
+const groups = computed(() => [{
+  id: 'links',
+  label: 'Gehe zu',
+  items: links.value.flat().flatMap(link => link.children ?? [link]).map(link => ({ ...link, label: String(link.label), icon: link.icon ?? 'i-lucide-arrow-right' })) as CommandPaletteItem[]
+}, {
+  id: 'tickets',
+  label: 'Tickets',
+  items: tickets.value.map(ticket => ({
+    id: ticket.id,
+    label: ticket.subject,
+    suffix: `${ticket.id} · ${ticket.customer}`,
+    icon: 'i-lucide-ticket',
+    onSelect: () => router.push({ path: '/tickets', query: { id: ticket.id } })
+  }))
+}])
+
+// Live updates: new tickets, messages and typing appear without reloading.
+const live = useLive()
+onMounted(() => {
+  if (can('tickets.view')) live.connect()
+})
+onBeforeUnmount(() => live.disconnect())
+
+defineShortcuts({
+  'g-h': () => router.push('/'),
+  'g-t': () => router.push('/tickets'),
+  'g-k': () => router.push('/customers'),
+  'g-s': () => router.push('/settings')
+})
 </script>
 
 <template>
-  <div class="workspace-shell">
-    <button class="mobile-menu-button" type="button" aria-label="Menü öffnen" @click="menuOpen = !menuOpen">
-      <Icon :name="menuOpen ? 'lucide:x' : 'lucide:menu'" />
-    </button>
-    <aside class="sidebar" :class="{ 'sidebar-open': menuOpen }">
-      <NuxtLink class="brand" to="/" @click="menuOpen = false">
-        <span class="brand-mark"><Icon name="lucide:life-buoy" /></span>
-        <span class="brand-name">Holymezo<br>MezoHelpdesk</span>
-      </NuxtLink>
-
-      <button class="workspace-switcher" type="button">
-        <span class="workspace-avatar">H</span>
-        <span class="workspace-copy"><strong>Holymezo</strong><small>MezoHelpdesk</small></span>
-        <Icon name="lucide:chevrons-up-down" class="switcher-icon" />
-      </button>
-
-      <div class="nav-label">Arbeitsbereich</div>
-      <nav class="main-nav" aria-label="Hauptnavigation">
-        <NuxtLink to="/" class="nav-link" :class="{ 'nav-active': route.path === '/' }" @click="menuOpen = false">
-          <Icon name="lucide:inbox" /><span>Posteingang</span>
+  <UDashboardGroup unit="rem">
+    <UDashboardSidebar
+      id="default"
+      v-model:open="open"
+      collapsible
+      resizable
+      class="bg-elevated/25"
+      :ui="{ footer: 'lg:border-t lg:border-default' }"
+    >
+      <template #header="{ collapsed }">
+        <NuxtLink to="/" class="flex items-center gap-2.5 px-1.5 py-2 min-w-0" @click="close">
+          <span class="grid size-7 shrink-0 place-items-center rounded-md bg-primary text-inverted">
+            <UIcon name="i-lucide-life-buoy" class="size-4" />
+          </span>
+          <span v-if="!collapsed" class="min-w-0 leading-tight">
+            <span class="block truncate text-sm font-semibold text-highlighted">Holymezo</span>
+            <span class="block truncate text-xs text-muted">MezoHelpdesk</span>
+          </span>
         </NuxtLink>
-        <NuxtLink to="/?filter=waiting" class="nav-link" @click="menuOpen = false"><Icon name="lucide:clock-3" /><span>Wartet auf Kunde</span></NuxtLink>
-        <NuxtLink to="/?filter=all" class="nav-link" @click="menuOpen = false"><Icon name="lucide:layers-2" /><span>Alle Tickets</span></NuxtLink>
-        <NuxtLink to="/?filter=resolved" class="nav-link" @click="menuOpen = false"><Icon name="lucide:circle-check" /><span>Gelöst</span></NuxtLink>
-      </nav>
+      </template>
 
-      <div class="nav-label team-label">Deine Teams <button type="button" aria-label="Team hinzufügen"><Icon name="lucide:plus" /></button></div>
-      <button class="team-link" type="button"><span class="team-dot team-dot-blue" />Support <span>12</span></button>
+      <template #default="{ collapsed }">
+        <UDashboardSearchButton :collapsed="collapsed" label="Suchen …" class="bg-transparent ring-default" />
 
-      <div class="sidebar-spacer" />
-      <a class="public-link" :href="String(config.public.intakeUrl)" target="_blank" rel="noreferrer"><Icon name="lucide:external-link" /><span>Öffentliches Formular</span></a>
-      <NuxtLink v-if="user?.role === 'Admin'" to="/settings" class="nav-link" :class="{ 'nav-active': route.path === '/settings' }" @click="menuOpen = false"><Icon name="lucide:settings" /><span>Einstellungen</span></NuxtLink>
-      <div class="profile-menu-wrap">
-        <div v-if="profileOpen" class="profile-menu" role="menu">
-          <span class="profile-menu-email">{{ user?.email }}</span>
-          <NuxtLink v-if="user?.role === 'Admin'" to="/settings" role="menuitem" @click="menuOpen = false"><Icon name="lucide:settings" />Einstellungen</NuxtLink>
-          <button type="button" role="menuitem" @click="logout"><Icon name="lucide:log-out" />Abmelden</button>
-        </div>
-        <button class="profile-button" type="button" :aria-expanded="profileOpen" aria-haspopup="menu" @click="profileOpen = !profileOpen">
-          <span class="avatar avatar-lara">{{ initials }}</span>
-          <span class="profile-copy"><strong>{{ user?.name }}</strong><small>{{ user?.role }}</small></span>
-          <Icon name="lucide:ellipsis" />
-        </button>
-      </div>
-    </aside>
+        <UNavigationMenu
+          :collapsed="collapsed"
+          :items="links[0]"
+          orientation="vertical"
+          tooltip
+          popover
+        />
 
-    <div v-if="menuOpen" class="sidebar-backdrop" @click="menuOpen = false" />
+        <UNavigationMenu
+          :collapsed="collapsed"
+          :items="links[1]"
+          orientation="vertical"
+          tooltip
+          class="mt-auto"
+        />
+      </template>
 
-    <main class="workspace-main">
-      <header class="topbar">
-        <div class="breadcrumbs"><span>Support</span><Icon name="lucide:chevron-right" /><strong>{{ pageTitle }}</strong></div>
-        <div class="topbar-actions">
-          <button class="icon-button topbar-search" type="button" aria-label="Suche öffnen"><Icon name="lucide:search" /><kbd>⌘ K</kbd></button>
-          <button class="icon-button" type="button" aria-label="Benachrichtigungen"><Icon name="lucide:bell" /><i class="notification-dot" /></button>
-          <button class="icon-button" type="button" aria-label="Abmelden" title="Abmelden" @click="logout"><Icon name="lucide:log-out" /></button>
-          <span class="avatar avatar-lara topbar-avatar" :title="user?.name">{{ initials }}</span>
-        </div>
-      </header>
-      <div class="page-content"><slot /></div>
-    </main>
-  </div>
+      <template #footer="{ collapsed }">
+        <UserMenu :collapsed="collapsed" />
+      </template>
+    </UDashboardSidebar>
+
+    <UDashboardSearch :groups="groups" placeholder="Tickets und Seiten durchsuchen …" />
+
+    <slot />
+  </UDashboardGroup>
 </template>

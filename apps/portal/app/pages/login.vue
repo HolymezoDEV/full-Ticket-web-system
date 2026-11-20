@@ -1,41 +1,82 @@
 <script setup lang="ts">
+import * as z from 'zod'
+import type { AuthFormField, FormSubmitEvent } from '@nuxt/ui'
+
 definePageMeta({ layout: 'auth' })
-useHead({ title: 'Anmelden · MezoHelpdesk' })
+useSeoMeta({ title: 'Anmelden' })
 
 const route = useRoute()
 const { login, registrationOpen, hasUsers } = useAuth()
-const form = reactive({ email: '', password: '' })
-const error = shallowRef('')
-const pending = shallowRef(false)
+const error = ref('')
+const loading = ref(false)
 
-async function submit() {
+const fields: AuthFormField[] = [{
+  name: 'email',
+  type: 'email',
+  label: 'E-Mail-Adresse',
+  autocomplete: 'username',
+  required: true
+}, {
+  name: 'password',
+  type: 'password',
+  label: 'Passwort',
+  autocomplete: 'current-password',
+  required: true
+}]
+
+const schema = z.object({
+  email: z.email('Bitte gib eine gültige E-Mail-Adresse ein.'),
+  password: z.string().min(1, 'Bitte gib dein Passwort ein.')
+})
+
+async function onSubmit(event: FormSubmitEvent<z.output<typeof schema>>) {
   error.value = ''
-  pending.value = true
+  loading.value = true
   try {
-    await login(form.email, form.password)
+    await login(event.data.email, event.data.password)
     await navigateTo(safeRedirect(route.query.redirect), { replace: true })
   } catch (err) {
     error.value = errorMessage(err, 'Die Anmeldung ist fehlgeschlagen.')
   } finally {
-    pending.value = false
+    loading.value = false
   }
 }
 </script>
 
 <template>
-  <div class="auth-card">
-    <h1>Anmelden</h1>
-    <p class="auth-lead">Melde dich mit deinem Team-Konto an.</p>
-    <p v-if="!hasUsers" class="auth-hint"><Icon name="lucide:info" />Es gibt noch kein Konto. Das erste registrierte Konto wird Administrator.</p>
-    <form class="staff-ticket-form auth-form" @submit.prevent="submit">
-      <label for="login-email">E-Mail-Adresse<input id="login-email" v-model="form.email" type="email" autocomplete="username" required></label>
-      <label for="login-password">Passwort<input id="login-password" v-model="form.password" type="password" autocomplete="current-password" required></label>
-      <p v-if="error" class="form-error" role="alert"><Icon name="lucide:circle-alert" />{{ error }}</p>
-      <button class="primary-button auth-submit" type="submit" :disabled="pending"><Icon name="lucide:log-in" />{{ pending ? 'Wird angemeldet …' : 'Anmelden' }}</button>
-    </form>
-    <div v-if="registrationOpen" class="auth-switch">
-      <span>Noch kein Konto?</span>
-      <NuxtLink class="secondary-button" :to="{ path: '/register', query: route.query }"><Icon name="lucide:user-plus" />Registrieren</NuxtLink>
-    </div>
-  </div>
+  <UAuthForm
+    :fields="fields"
+    :schema="schema"
+    :loading="loading"
+    :submit="{ label: 'Anmelden', block: true }"
+    title="Anmelden"
+    description="Melde dich mit deinem Team-Konto an."
+    icon="i-lucide-lock"
+    @submit="onSubmit"
+  >
+    <template v-if="!hasUsers" #description>
+      Es gibt noch kein Konto. Das erste registrierte Konto wird Admin.
+    </template>
+    <template #validation>
+      <UAlert
+        v-if="error"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-circle-alert"
+        :title="error"
+      />
+    </template>
+    <template v-if="registrationOpen" #footer>
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-sm text-muted">Noch kein Konto?</span>
+        <UButton
+          :to="{ path: '/register', query: route.query }"
+          label="Registrieren"
+          icon="i-lucide-user-plus"
+          color="neutral"
+          variant="outline"
+        />
+      </div>
+    </template>
+  </UAuthForm>
 </template>

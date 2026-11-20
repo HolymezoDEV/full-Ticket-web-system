@@ -1,14 +1,15 @@
-import { authenticate, getAuthSession, toPublicUser } from '../../utils/auth'
+import { authenticate, clientIp, getAuthSession } from '../../utils/auth'
+import { describeUser } from '../../utils/permissions'
 
-const attempts = new Map<string, { count: number; startedAt: number }>()
+const attempts = new Map<string, { count: number, startedAt: number }>()
 
 export default defineEventHandler(async (event) => {
-  const ip = getRequestIP(event) || 'unknown'
+  const ip = clientIp(event)
   const now = Date.now()
   const entry = attempts.get(ip)
   if (entry && now - entry.startedAt < 15 * 60_000 && entry.count >= 10) throw createError({ statusCode: 429, statusMessage: 'Zu viele Anmeldeversuche. Bitte warte 15 Minuten.' })
 
-  const body = await readBody<{ email?: unknown; password?: unknown }>(event)
+  const body = await readBody<{ email?: unknown, password?: unknown }>(event)
   const email = typeof body?.email === 'string' ? body.email.trim() : ''
   const password = typeof body?.password === 'string' ? body.password : ''
   if (!email || !password || password.length > 1024) throw createError({ statusCode: 400, statusMessage: 'Bitte gib E-Mail-Adresse und Passwort ein.' })
@@ -23,5 +24,5 @@ export default defineEventHandler(async (event) => {
   const session = await getAuthSession(event)
   await session.clear()
   await session.update({ userId: user.id })
-  return { user: toPublicUser(user) }
+  return { user: await describeUser(user) }
 })

@@ -1,6 +1,6 @@
 # Holymezo MezoHelpdesk
 
-Zwei Nuxt-4-Anwendungen: das Team-Portal auf Port 3000 und die öffentliche Supportseite auf Port 3001. Beide Apps verwenden Vue 3 und Tailwind CSS. Die Portaloberfläche verwendet shadcn-vue (Vue-Umsetzung aus dem Repository unovue/shadcn-vue).
+Zwei Nuxt-4-Anwendungen: das Team-Portal auf Port 3000 und die öffentliche Supportseite auf Port 3001. Das Portal basiert auf der Nuxt-UI-Dashboard-Vorlage (`nuxt-ui-templates/dashboard`, Nuxt UI v4) mit den Farb- und Formwerten des shadcn-Presets `b1Yo1b01Q`.
 
 ## Lokal starten
 
@@ -35,6 +35,14 @@ Die Ticketdaten werden auch dann gespeichert, wenn kein Mailzugang konfiguriert 
 
 SUPPORT_EMAIL erhält Benachrichtigungen zu Kundennachrichten. Für die getrennte Intake-App kann NUXT_TICKET_API_URL in apps/intake/.env gesetzt werden; lokal zeigt der Standardwert auf Port 3000.
 
-## shadcn-vue
+## Anmeldung
 
-Die offizielle shadcn-vue Nuxt-Initialisierung wurde ausgeführt. Die Konfiguration liegt in apps/portal/components.json; der Button liegt unter apps/portal/app/components/ui/button. Weitere Komponenten lassen sich aus dem Portal-Verzeichnis mit pnpm dlx shadcn-vue@latest add <komponente> ergänzen.
+Beim ersten Aufruf des Portals wird man zur Registrierung geleitet. Das erste Konto wird Admin, alle weiteren Agent. Admins können unter Einstellungen → Team die Selbstregistrierung sperren, Rollen ändern und Konten entfernen. Konten liegen in apps/portal/.data/users.json (Passwörter als scrypt-Hash).
+
+## Mailserver
+
+Unter Einstellungen → Mailserver (nur Admins) wird der Versand eingerichtet: SMTP (mit Vorlagen für Gmail, Outlook, IONOS, Strato) oder Resend. Mit „Testmail senden“ geht eine Mail an die eigene Adresse. Die Werte liegen in apps/portal/.data/mail-settings.json und haben Vorrang vor der .env.
+
+## Oberfläche und Theme
+
+Das Theme steht in apps/portal/app/app.config.ts (primary: blue, neutral: mauve) und apps/portal/app/assets/css/main.css (Schrift Inter, Radius 0.625rem, Zeiger-Cursor auf Buttons). Das entspricht dem shadcn-Preset `b1Yo1b01Q` (Stil base-nova). Der Befehl `shadcn init --template vite` selbst erzeugt ein React-Projekt und lässt sich in Nuxt nicht verwenden; deshalb wurden nur seine Werte übernommen.

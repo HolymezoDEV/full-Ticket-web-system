@@ -1,10 +1,11 @@
-import { createUser, getAuthSession, readAppSettings, readUsers, toPublicUser } from '../../utils/auth'
+import { createUser, getAuthSession, readAppSettings, readUsers } from '../../utils/auth'
+import { describeUser } from '../../utils/permissions'
 
 export default defineEventHandler(async (event) => {
   const hasUsers = (await readUsers()).length > 0
   if (hasUsers && !(await readAppSettings()).allowRegistration) throw createError({ statusCode: 403, statusMessage: 'Die Registrierung ist deaktiviert. Bitte wende dich an eine Administratorin oder einen Administrator.' })
 
-  const body = await readBody<{ name?: unknown; email?: unknown; password?: unknown }>(event)
+  const body = await readBody<{ name?: unknown, email?: unknown, password?: unknown }>(event)
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
   const email = typeof body?.email === 'string' ? body.email.trim() : ''
   const password = typeof body?.password === 'string' ? body.password : ''
@@ -18,5 +19,5 @@ export default defineEventHandler(async (event) => {
   await session.clear()
   await session.update({ userId: user.id })
   setResponseStatus(event, 201)
-  return { user: toPublicUser(user) }
+  return { user: await describeUser(user) }
 })

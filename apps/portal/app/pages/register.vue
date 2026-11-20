@@ -1,47 +1,114 @@
 <script setup lang="ts">
+import * as z from 'zod'
+import type { AuthFormField, FormSubmitEvent } from '@nuxt/ui'
+
 definePageMeta({ layout: 'auth' })
-useHead({ title: 'Registrieren · MezoHelpdesk' })
+useSeoMeta({ title: 'Registrieren' })
 
 const route = useRoute()
 const { register, registrationOpen, hasUsers } = useAuth()
-const form = reactive({ name: '', email: '', password: '', passwordRepeat: '' })
-const error = shallowRef('')
-const pending = shallowRef(false)
+const error = ref('')
+const loading = ref(false)
 
-async function submit() {
+const fields: AuthFormField[] = [{
+  name: 'name',
+  type: 'text',
+  label: 'Name',
+  autocomplete: 'name',
+  required: true
+}, {
+  name: 'email',
+  type: 'email',
+  label: 'E-Mail-Adresse',
+  autocomplete: 'email',
+  required: true
+}, {
+  name: 'password',
+  type: 'password',
+  label: 'Passwort',
+  description: 'Mindestens 10 Zeichen.',
+  autocomplete: 'new-password',
+  required: true
+}, {
+  name: 'passwordRepeat',
+  type: 'password',
+  label: 'Passwort wiederholen',
+  autocomplete: 'new-password',
+  required: true
+}]
+
+const schema = z.object({
+  name: z.string().trim().min(2, 'Bitte gib deinen Namen ein.').max(120),
+  email: z.email('Bitte gib eine gültige E-Mail-Adresse ein.'),
+  password: z.string().min(10, 'Mindestens 10 Zeichen.'),
+  passwordRepeat: z.string()
+}).refine(data => data.password === data.passwordRepeat, { message: 'Die Passwörter stimmen nicht überein.', path: ['passwordRepeat'] })
+
+async function onSubmit(event: FormSubmitEvent<z.output<typeof schema>>) {
   error.value = ''
-  if (form.password.length < 10) { error.value = 'Das Passwort muss mindestens 10 Zeichen lang sein.'; return }
-  if (form.password !== form.passwordRepeat) { error.value = 'Die Passwörter stimmen nicht überein.'; return }
-  pending.value = true
+  loading.value = true
   try {
-    await register({ name: form.name, email: form.email, password: form.password })
+    await register({ name: event.data.name, email: event.data.email, password: event.data.password })
     await navigateTo(safeRedirect(route.query.redirect), { replace: true })
   } catch (err) {
     error.value = errorMessage(err, 'Die Registrierung ist fehlgeschlagen.')
   } finally {
-    pending.value = false
+    loading.value = false
   }
 }
 </script>
 
 <template>
-  <div class="auth-card">
-    <h1>Konto erstellen</h1>
-    <p class="auth-lead">{{ hasUsers ? 'Lege dein Team-Konto an.' : 'Lege das erste Konto an. Es erhält Administratorrechte.' }}</p>
-    <template v-if="registrationOpen">
-      <form class="staff-ticket-form auth-form" @submit.prevent="submit">
-        <label for="register-name">Name<input id="register-name" v-model="form.name" autocomplete="name" required minlength="2" maxlength="120"></label>
-        <label for="register-email">E-Mail-Adresse<input id="register-email" v-model="form.email" type="email" autocomplete="email" required></label>
-        <label for="register-password">Passwort<input id="register-password" v-model="form.password" type="password" autocomplete="new-password" required minlength="10"><small class="field-hint">Mindestens 10 Zeichen.</small></label>
-        <label for="register-password-repeat">Passwort wiederholen<input id="register-password-repeat" v-model="form.passwordRepeat" type="password" autocomplete="new-password" required></label>
-        <p v-if="error" class="form-error" role="alert"><Icon name="lucide:circle-alert" />{{ error }}</p>
-        <button class="primary-button auth-submit" type="submit" :disabled="pending"><Icon name="lucide:user-plus" />{{ pending ? 'Wird erstellt …' : 'Registrieren' }}</button>
-      </form>
+  <UAuthForm
+    v-if="registrationOpen"
+    :fields="fields"
+    :schema="schema"
+    :loading="loading"
+    :submit="{ label: 'Registrieren', block: true }"
+    title="Konto erstellen"
+    :description="hasUsers ? 'Lege dein Team-Konto an.' : 'Lege das erste Konto an. Es erhält Admin-Rechte.'"
+    icon="i-lucide-user-plus"
+    @submit="onSubmit"
+  >
+    <template #validation>
+      <UAlert
+        v-if="error"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-circle-alert"
+        :title="error"
+      />
     </template>
-    <p v-else class="auth-hint"><Icon name="lucide:lock" />Die Registrierung ist deaktiviert. Bitte wende dich an eine Administratorin oder einen Administrator.</p>
-    <div v-if="hasUsers" class="auth-switch">
-      <span>Schon ein Konto?</span>
-      <NuxtLink class="secondary-button" :to="{ path: '/login', query: route.query }"><Icon name="lucide:log-in" />Anmelden</NuxtLink>
+    <template v-if="hasUsers" #footer>
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-sm text-muted">Schon ein Konto?</span>
+        <UButton
+          :to="{ path: '/login', query: route.query }"
+          label="Anmelden"
+          icon="i-lucide-log-in"
+          color="neutral"
+          variant="outline"
+        />
+      </div>
+    </template>
+  </UAuthForm>
+  <div v-else class="flex flex-col gap-4 text-center">
+    <UIcon name="i-lucide-lock" class="mx-auto size-8 text-muted" />
+    <div>
+      <h1 class="text-xl font-semibold text-highlighted">
+        Registrierung deaktiviert
+      </h1>
+      <p class="mt-1 text-sm text-muted">
+        Bitte wende dich an eine Administratorin oder einen Administrator.
+      </p>
     </div>
+    <UButton
+      to="/login"
+      label="Zur Anmeldung"
+      icon="i-lucide-log-in"
+      color="neutral"
+      variant="outline"
+      block
+    />
   </div>
 </template>

@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import type { EmailContent } from './email-templates'
 import { readJson, writeJson } from './auth'
 
 export type MailProvider = 'none' | 'smtp' | 'resend'
@@ -6,7 +7,7 @@ export type MailSettings = {
   provider: MailProvider
   from: string
   supportEmail: string
-  smtp: { host: string; port: number; secure: boolean; user: string; password: string }
+  smtp: { host: string, port: number, secure: boolean, user: string, password: string }
   resend: { apiKey: string }
 }
 /** What the browser gets: secrets are replaced by "is one stored?" flags. */
@@ -25,7 +26,7 @@ function envDefaults(): MailSettings {
     from: String(config.mailFrom || ''),
     supportEmail: String(config.supportEmail || ''),
     smtp: { host: '', port: 587, secure: false, user: '', password: '' },
-    resend: { apiKey: String(config.resendApiKey || '') },
+    resend: { apiKey: String(config.resendApiKey || '') }
   }
 }
 
@@ -46,7 +47,21 @@ const isEmail = (value: string) => value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\
 const isSender = (value: string) => isEmail(value) || /^[^<>]{1,120}<[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>$/.test(value)
 
 /** Validates input from the settings form; empty secret fields keep the stored secret. */
-export async function saveMailSettings(input: Record<string, any>) {
+/** "Support <a@b.de>" -> "a@b.de" */
+export const senderAddress = (from: string) => (from.match(/<([^<>]+)>\s*$/)?.[1] ?? from).trim().toLowerCase()
+
+// These providers only accept the logged-in mailbox as sender address.
+const strictSenderHosts = /(^|\.)(web\.de|gmx\.(net|de|com)|t-online\.de|freenet\.de|ionos\.de|strato\.de|office365\.com|outlook\.com)$/i
+
+type MailSettingsInput = {
+  provider?: unknown
+  from?: unknown
+  supportEmail?: unknown
+  smtp?: { host?: unknown, port?: unknown, secure?: unknown, user?: unknown, password?: unknown, clearPassword?: unknown }
+  resend?: { apiKey?: unknown }
+}
+
+export async function saveMailSettings(input: MailSettingsInput) {
   const current = await readMailSettings()
   const provider = input.provider as MailProvider
   if (!['none', 'smtp', 'resend'].includes(provider)) throw createError({ statusCode: 400, statusMessage: 'Unbekannter Mail-Anbieter.' })
@@ -61,12 +76,15 @@ export async function saveMailSettings(input: Record<string, any>) {
     port: Number(smtpIn.port ?? 587),
     secure: Boolean(smtpIn.secure),
     user: String(smtpIn.user ?? '').trim(),
-    password: typeof smtpIn.password === 'string' && smtpIn.password ? smtpIn.password : current.smtp.password,
+    password: typeof smtpIn.password === 'string' && smtpIn.password ? smtpIn.password : current.smtp.password
   }
   if (smtpIn.clearPassword) smtp.password = ''
   if (provider === 'smtp') {
     if (!/^[a-z0-9.-]{1,253}$/i.test(smtp.host)) throw createError({ statusCode: 400, statusMessage: 'Bitte gib einen gültigen SMTP-Host an.' })
     if (!Number.isInteger(smtp.port) || smtp.port < 1 || smtp.port > 65535) throw createError({ statusCode: 400, statusMessage: 'Der SMTP-Port muss zwischen 1 und 65535 liegen.' })
+    if (strictSenderHosts.test(smtp.host) && isEmail(smtp.user) && senderAddress(from) !== smtp.user.toLowerCase()) {
+      throw createError({ statusCode: 400, statusMessage: `Dieser Anbieter verschickt nur mit der Adresse, mit der du dich anmeldest. Trage als Absender ${smtp.user} ein (z. B. „Holymezo Support <${smtp.user}>“).` })
+    }
   }
   const apiKeyIn = input.resend?.apiKey
   const resend = { apiKey: typeof apiKeyIn === 'string' && apiKeyIn.trim() ? apiKeyIn.trim() : current.resend.apiKey }
@@ -77,9 +95,13 @@ export async function saveMailSettings(input: Record<string, any>) {
   return { ...settings, source: 'settings' as const }
 }
 
-export type SendResult = { ok: true } | { ok: false; error: string }
+export type SendResult = { ok: true } | { ok: false, error: string }
 
-export async function sendMail(to: string, subject: string, html: string, override?: MailSettings): Promise<SendResult> {
+// Marks mails as automated so autoresponders (out-of-office etc.) stay quiet.
+const automatedHeaders = { 'Auto-Submitted': 'auto-generated', 'X-Auto-Response-Suppress': 'All' }
+
+export async function sendMail(to: string, content: EmailContent, override?: MailSettings): Promise<SendResult> {
+  const { subject, html, text, attachments = [] } = content
   const settings = override ?? await readMailSettings()
   if (settings.provider === 'none' || !settings.from) return { ok: false, error: 'Kein Mailserver eingerichtet.' }
   try {
@@ -87,15 +109,18 @@ export async function sendMail(to: string, subject: string, html: string, overri
       const transport = nodemailer.createTransport({
         host: settings.smtp.host, port: settings.smtp.port, secure: settings.smtp.secure,
         auth: settings.smtp.user ? { user: settings.smtp.user, pass: settings.smtp.password } : undefined,
-        connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 20_000,
+        connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 20_000
       })
-      await transport.sendMail({ from: settings.from, to, subject, html })
+      await transport.sendMail({ from: settings.from, to, subject, html, text, headers: automatedHeaders, attachments })
       return { ok: true }
     }
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${settings.resend.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: settings.from, to: [to], subject, html }),
+      headers: { 'Authorization': `Bearer ${settings.resend.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: settings.from, to: [to], subject, html, text, headers: automatedHeaders,
+        attachments: attachments.map(file => ({ filename: file.filename, content: file.content.toString('base64'), content_type: file.contentType }))
+      })
     })
     if (!response.ok) {
       const detail = await response.text()
@@ -105,6 +130,22 @@ export async function sendMail(to: string, subject: string, html: string, overri
     return { ok: true }
   } catch (error) {
     console.error('Mail delivery failed:', error)
-    return { ok: false, error: error instanceof Error ? error.message : 'Mailversand fehlgeschlagen.' }
+    return { ok: false, error: explainSmtpError(error, settings) }
   }
+}
+
+/** Turns common SMTP failures into actionable German messages. */
+function explainSmtpError(error: unknown, settings: MailSettings) {
+  const err = error as { message?: string, code?: string, responseCode?: number }
+  const message = err?.message ?? ''
+  if (/sender address is not allowed|sender.*(rejected|not allowed|not owned)|SendAsDenied/i.test(message)) {
+    return `Der Mailserver lehnt den Absender ${senderAddress(settings.from)} ab. Trage als Absender dieselbe Adresse ein wie beim Benutzernamen (${settings.smtp.user || 'deine Postfach-Adresse'}).`
+  }
+  if (err?.code === 'EAUTH' || err?.responseCode === 535) {
+    return 'Anmeldung am Mailserver fehlgeschlagen. Prüfe Benutzername und Passwort. Bei WEB.DE/GMX muss der Zugriff über POP3/IMAP im Postfach aktiviert sein, bei Gmail brauchst du ein App-Passwort.'
+  }
+  if (err?.code === 'ECONNREFUSED' || err?.code === 'ETIMEDOUT' || err?.code === 'ESOCKET' || err?.code === 'ECONNECTION') {
+    return `Keine Verbindung zu ${settings.smtp.host}:${settings.smtp.port}. Prüfe Host, Port und die TLS-Einstellung (465 = TLS an, 587 = TLS aus).`
+  }
+  return message || 'Mailversand fehlgeschlagen.'
 }
