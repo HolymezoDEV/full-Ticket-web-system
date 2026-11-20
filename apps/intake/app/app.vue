@@ -1,0 +1,1 @@
+<template><Html lang="de"><Head><Title>Holymezo MezoHelpdesk</Title><Meta name="description" content="Supportanfrage an Holymezo senden und sicher nachverfolgen." /></Head><Body><NuxtRouteAnnouncer /><NuxtPage /></Body></Html></template>
