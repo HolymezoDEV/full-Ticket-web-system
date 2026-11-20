@@ -2,7 +2,11 @@
 const route = useRoute()
 const config = useRuntimeConfig()
 const menuOpen = shallowRef(false)
-const pageTitle = computed(() => route.path.startsWith('/tickets/') ? 'Ticket' : route.path === '/new-ticket' ? 'Neues Ticket' : 'Posteingang')
+const { user, logout } = useAuth()
+const profileOpen = shallowRef(false)
+const initials = computed(() => (user.value?.name ?? '?').split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join(''))
+const pageTitle = computed(() => route.path === '/settings' ? 'Einstellungen' : route.path === '/tickets/new' ? 'Neues Ticket' : route.path.startsWith('/tickets/') ? 'Ticket' : 'Posteingang')
+watch(() => route.fullPath, () => { profileOpen.value = false })
 </script>
 
 <template>
@@ -37,11 +41,19 @@ const pageTitle = computed(() => route.path.startsWith('/tickets/') ? 'Ticket' :
 
       <div class="sidebar-spacer" />
       <a class="public-link" :href="String(config.public.intakeUrl)" target="_blank" rel="noreferrer"><Icon name="lucide:external-link" /><span>Öffentliches Formular</span></a>
-      <button class="profile-button" type="button">
-        <span class="avatar avatar-lara">H</span>
-        <span class="profile-copy"><strong>Holymezo</strong><small>Support</small></span>
-        <Icon name="lucide:ellipsis" />
-      </button>
+      <NuxtLink v-if="user?.role === 'Admin'" to="/settings" class="nav-link" :class="{ 'nav-active': route.path === '/settings' }" @click="menuOpen = false"><Icon name="lucide:settings" /><span>Einstellungen</span></NuxtLink>
+      <div class="profile-menu-wrap">
+        <div v-if="profileOpen" class="profile-menu" role="menu">
+          <span class="profile-menu-email">{{ user?.email }}</span>
+          <NuxtLink v-if="user?.role === 'Admin'" to="/settings" role="menuitem" @click="menuOpen = false"><Icon name="lucide:settings" />Einstellungen</NuxtLink>
+          <button type="button" role="menuitem" @click="logout"><Icon name="lucide:log-out" />Abmelden</button>
+        </div>
+        <button class="profile-button" type="button" :aria-expanded="profileOpen" aria-haspopup="menu" @click="profileOpen = !profileOpen">
+          <span class="avatar avatar-lara">{{ initials }}</span>
+          <span class="profile-copy"><strong>{{ user?.name }}</strong><small>{{ user?.role }}</small></span>
+          <Icon name="lucide:ellipsis" />
+        </button>
+      </div>
     </aside>
 
     <div v-if="menuOpen" class="sidebar-backdrop" @click="menuOpen = false" />
@@ -52,7 +64,8 @@ const pageTitle = computed(() => route.path.startsWith('/tickets/') ? 'Ticket' :
         <div class="topbar-actions">
           <button class="icon-button topbar-search" type="button" aria-label="Suche öffnen"><Icon name="lucide:search" /><kbd>⌘ K</kbd></button>
           <button class="icon-button" type="button" aria-label="Benachrichtigungen"><Icon name="lucide:bell" /><i class="notification-dot" /></button>
-          <span class="avatar avatar-lara topbar-avatar">LW</span>
+          <button class="icon-button" type="button" aria-label="Abmelden" title="Abmelden" @click="logout"><Icon name="lucide:log-out" /></button>
+          <span class="avatar avatar-lara topbar-avatar" :title="user?.name">{{ initials }}</span>
         </div>
       </header>
       <div class="page-content"><slot /></div>

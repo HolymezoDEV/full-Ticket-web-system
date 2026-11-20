@@ -20,6 +20,7 @@ export default defineNuxtConfig({
     componentDir: '~/components/ui',
   },
   runtimeConfig: {
+    sessionSecret: process.env.NUXT_SESSION_SECRET || '',
     resendApiKey: process.env.RESEND_API_KEY || '',
     mailFrom: process.env.MAIL_FROM || '',
     supportEmail: process.env.SUPPORT_EMAIL || '',

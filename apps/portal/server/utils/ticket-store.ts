@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { readMailSettings, sendMail } from './mail'
 
 export type TicketStatus = 'Offen' | 'In Bearbeitung' | 'Wartet auf Kunde' | 'Gelöst'
 export type TicketMessage = { id: string; author: string; role: 'Team' | 'Kunde'; text: string; createdAt: string }
@@ -79,24 +80,13 @@ export async function updateTicketStatus(id: string, status: TicketStatus) {
 }
 
 export async function sendTicketEmail(to: string, subject: string, html: string) {
-  const config = useRuntimeConfig()
-  if (!config.resendApiKey || !config.mailFrom) return false
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${config.resendApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: config.mailFrom, to: [to], subject, html }),
-    })
-    if (!response.ok) {
-      const detail = await response.text()
-      console.error('Ticket email delivery failed:', response.status, detail)
-      return false
-    }
-    return true
-  } catch (error) {
-    console.error('Ticket email service is unavailable:', error)
-    return false
-  }
+  if (!to) return false
+  return (await sendMail(to, subject, html)).ok
+}
+
+/** Notification address for the team, configured in Einstellungen → Mailserver. */
+export async function supportNotificationEmail() {
+  return (await readMailSettings()).supportEmail
 }
 
 export const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
